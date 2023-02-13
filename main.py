@@ -1,17 +1,15 @@
 import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from bs4 import BeautifulSoup
 from pandas import *
 import imdb
-
+import string
 import os
 from dotenv import load_dotenv
 
 
 from movie import Movie
 from episode import TV_Episode
-from song import Song
 
 
 # Collection of the necessary urls. Profile url is dependent on your individual account
@@ -26,13 +24,6 @@ viewing_history_path = "~/Downloads/NetflixViewingHistory.csv"
 
 # List of words used for "season" (so far)
 season_words = ["Season", "Part", "Chapter", "Book", "Volume", "Limited Series"]
-
-
-# Remove the previous viewing history file if it already exists
-try:
-    os.remove(os.path.expanduser(viewing_history_path))
-except OSError:
-    pass
 
 
 
@@ -99,15 +90,17 @@ def separate_episode_info(full_show_info, number_of_colons):
 # Logic based on the conventions found in the netflix viewing history file
 def classify(media):
 
-    ia = imdb.IMDb()
+    classified_media = []
 
     for title in media:
+        ia = imdb.IMDb()
+
         colon_count = title.count(":")
 
         # Guaranteed to be a TV show
         if colon_count >= 2:
             show, season, episode = separate_episode_info(title, colon_count)
-            TV_Episode(show, season, episode)
+            classified_media.append(TV_Episode(show, season, episode))
 
         # One colon scenario (difficult to tell if it's a movie or one season show)
         # Decides that the title is a movie if the movie search result exactly matches the name
@@ -116,7 +109,7 @@ def classify(media):
             if results and results[0]['title'] == title:
                 try:
                     year = str(results[0]['year'])
-                    Movie(title, year)
+                    classified_media.append(Movie(title, year))
                 except KeyError:
                     print(title)
             
@@ -128,15 +121,51 @@ def classify(media):
             # Might update later to do a show search as well
             else:
                 show, season, episode = separate_episode_info(title, 1)
-                TV_Episode(show, season, episode)
+                classified_media.append(TV_Episode(show, season, episode))
 
 
-    return
+    return classified_media
+
+
+
+def get_movie_url(movie):
+    punctuation = string.punctuation.replace("-", "")
+    url = "tunefind.com/movie/"
+
+    name = movie.title.translate(str.maketrans('', '', punctuation))
+    name = name.replace(" ", "-")
+    name = name + "-" + str(movie.year)
+    tunefind_url = url + name
+    return tunefind_url
+
+
+def get_season_url(episode):
+    punctuation = string.punctuation.replace("-", "")
+    url = "tunefind.com/show/"
+
+    name = episode.show.translate(str.maketrans('', '', punctuation))
+    name = name.replace(" ", "-")
+    name = name + "/" + episode.season.replace(" ", "-")
+    tunefind_url = url + name + "/"
+    return tunefind_url
+
+
+
+
+
 
 
 
 
 def main():
+    # Remove the previous viewing history file if it already exists
+    try:
+        os.remove(os.path.expanduser(viewing_history_path))
+    except OSError:
+        pass
+
+
+
     # Import your netflix email and password from a .env file within the same directory
     load_dotenv()
     EMAIL_ADDRESS = os.getenv("EMAIL")
@@ -165,7 +194,17 @@ def main():
 
 
     # Separates the movies and TV shows to format correctly (some failures in classification currently)
-    classify(titles)
+    list = classify(titles)
+
+    for item in list:
+        if isinstance(item, Movie):
+            print(get_movie_url(item))
+
+
+    # Removes the netflix viewing history file
+    os.remove(os.path.expanduser(viewing_history_path))
+
+    
     return
 
 
@@ -175,26 +214,3 @@ if __name__ == "__main__":
 
 
 
-
-
-
-
-
-""" driver.get("https://www.tunefind.com/show/the-magicians/season-1/27673")
-
-songs = []
-artists = []
-
-soup = BeautifulSoup(driver.page_source, "html.parser")
-
-elems = driver.find_elements(By.XPATH, "//a[@href]")
-
-for elem in elems:
-    if "song" in elem.get_attribute("href"):
-        songs.append(elem.get_attribute("href")) 
-
-
-print(songs) """
-
-# Removes the netflix viewing history file
-os.remove(os.path.expanduser(viewing_history_path))
