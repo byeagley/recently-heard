@@ -1,15 +1,16 @@
 import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+import undetected_chromedriver as uc
 from pandas import *
 import imdb
-import string
 import os
 from dotenv import load_dotenv
 
-
 from movie import Movie
 from episode import TV_Episode
+
+from spotify_search import update_playlist
 
 
 # Collection of the necessary urls. Profile url is dependent on your individual account
@@ -22,13 +23,18 @@ tunefind_url = "https://tunefind.com/"
 viewing_history_path = "~/Downloads/NetflixViewingHistory.csv"
 
 
-# List of words used for "season" (so far)
-season_words = ["Season", "Part", "Chapter", "Book", "Volume", "Limited Series"]
+# List of words used for "season" (that I've run into so far)
+season_words = ["Season", "Part", "Chapter", "Book", "Volume", "Limited Series", "Act"]
 
 
+# How far back into the viewing history you want to go
+# Hoping to add some cache system later so it doesn't have to do so much searching, but for now it's too slow
+# to parse the whole file (minutes of runtime)
+# Plus movies have way more songs than I thought
+view_depth = 1
 
 
-# Changes the season portion to always be "Season (some number)"
+# Changes the season portion of an episode to always be "Season (some number)"
 def rewrite(season):
     season_number = 1
     for c in season:
@@ -88,13 +94,11 @@ def separate_episode_info(full_show_info, number_of_colons):
 
 # Determines if a title is a TV show or movie
 # Logic based on the conventions found in the netflix viewing history file
-def classify(media):
+def classify(media, imdb_session):
 
     classified_media = []
 
     for title in media:
-        ia = imdb.IMDb()
-
         colon_count = title.count(":")
 
         # Guaranteed to be a TV show
@@ -105,8 +109,8 @@ def classify(media):
         # One colon scenario (difficult to tell if it's a movie or one season show)
         # Decides that the title is a movie if the movie search result exactly matches the name
         else:
-            results = ia.search_movie(title)
-            if results and results[0]['title'] == title:
+            results = imdb_session.search_movie(title)
+            if results and results[0]['title'].lower() == title.lower():
                 try:
                     year = str(results[0]['year'])
                     classified_media.append(Movie(title, year))
@@ -127,31 +131,7 @@ def classify(media):
     return classified_media
 
 
-
-def get_movie_url(movie):
-    punctuation = string.punctuation.replace("-", "")
-    url = "tunefind.com/movie/"
-
-    name = movie.title.translate(str.maketrans('', '', punctuation))
-    name = name.replace(" ", "-")
-    name = name + "-" + str(movie.year)
-    tunefind_url = url + name
-    return tunefind_url
-
-
-def get_season_url(episode):
-    punctuation = string.punctuation.replace("-", "")
-    url = "tunefind.com/show/"
-
-    name = episode.show.translate(str.maketrans('', '', punctuation))
-    name = name.replace(" ", "-")
-    name = name + "/" + episode.season.replace(" ", "-")
-    tunefind_url = url + name + "/"
-    return tunefind_url
-
-
-
-
+    
 
 
 
@@ -165,7 +145,6 @@ def main():
         pass
 
 
-
     # Import your netflix email and password from a .env file within the same directory
     load_dotenv()
     EMAIL_ADDRESS = os.getenv("EMAIL")
@@ -173,8 +152,10 @@ def main():
 
 
     # Creates a new Chrome session
-    driver = webdriver.Chrome()
-    driver.implicitly_wait(30)
+    options = webdriver.ChromeOptions() 
+    options.add_argument("start-maximized")
+    driver = uc.Chrome(options=options)
+    driver.implicitly_wait(6)
 
     # Login procedure. Finds fields based on HTML tags
     driver.get(netflix_login_url)
@@ -194,12 +175,24 @@ def main():
 
 
     # Separates the movies and TV shows to format correctly (some failures in classification currently)
-    list = classify(titles)
+    # 'history' is a list of Movie and TV_Episode objects
+    ia = imdb.IMDb()
+    history = classify(titles[:view_depth], ia)
 
-    for item in list:
-        if isinstance(item, Movie):
-            print(get_movie_url(item))
 
+    test = []
+    for item in history:
+        result = item.get_url(driver)
+        if result:
+            # Array of song objects created by parsing Tunefind page
+            songs = item.get_soundtrack(driver)
+            test = test + songs
+
+        if songs:
+            #update_playlist(songs)
+            pass
+                
+    update_playlist(test)
 
     # Removes the netflix viewing history file
     os.remove(os.path.expanduser(viewing_history_path))
